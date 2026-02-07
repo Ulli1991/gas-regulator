@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Output files
+*.png
+*.pdf
+*.hdf5
+
+# Temporary files
+*.swp
+*.swo
+*~
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Jupyter
+.ipynb_checkpoints/
+
+/u/uli/gas-regulator/data/cooling_tables/CoolingTables/*
+data/cooling_tables/coolingtables_highres.tar.gz

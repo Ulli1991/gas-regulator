@@ -392,6 +392,105 @@ def eta_E(M_halo_z0, params=None):
     return A * M_12**(-lam)
 
 
+def virial_velocity(M_halo, z, params=None):
+    """Virial velocity V_vir = sqrt(G*M_halo/R_vir) in cm/s."""
+    if params is None:
+        params = default_params
+    G = params["G"]
+    r_vir = virial_radius(M_halo, z, params)
+    return np.sqrt(G * M_halo / r_vir)
+
+
+def nfw_v_max(M_halo, z, params=None):
+    """
+    Peak circular velocity V_max and radius R_max for an NFW halo.
+
+    V_max occurs at r ~ 2.16 * R_s where R_s = R_vir / c.
+
+    Returns:
+        (V_max in cm/s, R_max in cm)
+    """
+    if params is None:
+        params = default_params
+    c = params["c_NFW"]
+    r_vir = virial_radius(M_halo, z, params)
+    V_vir = virial_velocity(M_halo, z, params)
+
+    R_s = r_vir / c
+    R_max = 2.16 * R_s
+
+    # V_max / V_vir for NFW (Mo, van den Bosch & White eq. 11.26 evaluated at R_max)
+    x = R_max / r_vir
+    g_c = np.log(1 + c) - c / (1 + c)
+    cx = c * x
+    g_cx = np.log(1 + cx) - cx / (1 + cx)
+    V_max = V_vir * np.sqrt(g_cx / (x * g_c))
+
+    return V_max, R_max
+
+
+def turbulent_velocity(E_kin, M_CGM):
+    """Turbulent velocity v_turb = sqrt(2 * E_kin / M_CGM) in cm/s."""
+    return np.sqrt(2 * np.maximum(E_kin, 0) / np.maximum(M_CGM, 1e30))
+
+
+def turbulence_dissipation_rate(E_kin, M_CGM, R_turb):
+    """
+    Turbulence dissipation rate E_diss = E_kin / t_turb in erg/s.
+
+    t_turb = R_turb / v_turb (eddy turnover time)
+    E_diss = E_kin * v_turb / R_turb
+
+    Pandya Eq. 14-15.
+    """
+    v_turb = turbulent_velocity(E_kin, M_CGM)
+    if v_turb > 0 and R_turb > 0:
+        t_turb = R_turb / v_turb
+        return E_kin / t_turb
+    return 0.0
+
+
+def t_ff_effective(M_halo, z, v_turb, params=None, v_CR=0.0):
+    """
+    Effective free-fall time with non-thermal pressure support.
+
+    t_ff_eff = (R_max / V_max) * sqrt(1 + (v_turb^2 + v_CR^2) / V_max^2)
+
+    Pandya Eq. 18, extended for CR pressure.
+    """
+    if params is None:
+        params = default_params
+    V_max, R_max = nfw_v_max(M_halo, z, params)
+    t_ff_base = R_max / V_max
+    return t_ff_base * np.sqrt(1 + (v_turb**2 + v_CR**2) / V_max**2)
+
+
+def cr_effective_velocity(E_CR, M_CGM):
+    """Effective CR velocity for pressure support: v_CR = sqrt(2*E_CR/M_CGM) in cm/s."""
+    return np.sqrt(2 * np.maximum(E_CR, 0) / np.maximum(M_CGM, 1e30))
+
+
+def cr_diffusion_rate(E_CR, r_vir, params=None):
+    """
+    CR energy loss rate from diffusion out of the halo.
+
+    dE_CR_diff = E_CR / t_diff where t_diff = R_vir^2 / kappa_CR.
+
+    Args:
+        E_CR: CR energy in erg
+        r_vir: Virial radius in cm
+        params: Parameter dictionary
+
+    Returns:
+        dE_CR_diff in erg/s
+    """
+    if params is None:
+        params = default_params
+    kappa_CR = params["kappa_CR"]
+    t_diff = r_vir**2 / kappa_CR
+    return np.maximum(E_CR, 0) / t_diff
+
+
 def sound_speed(T_CGM, params=None):
     """
     Sound speed c_s in cm/s.

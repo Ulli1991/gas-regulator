@@ -175,11 +175,15 @@ def run_single_halo(M_halo_z0, z_start, z_end, params=None, rtol=1e-6, atol=1e-6
             - M_CGM: CGM mass in Msun
             - M_ISM: ISM mass in Msun
             - M_star: Stellar mass in Msun
-            - E_CGM: CGM energy in erg
+            - E_CGM: Total CGM energy in erg (E_th + E_kin when turbulence on)
             - M_Z_CGM: CGM metal mass in Msun
             - Z_CGM: CGM metallicity (Z/Z_sun)
             - T_CGM: CGM temperature in K
             - params: Parameter dictionary used
+            When enable_turbulence=True, also:
+            - E_th: Thermal energy in erg
+            - E_kin: Kinetic energy in erg
+            - v_turb: Turbulent velocity in cm/s
     """
     if params is None:
         params = default_params.copy()
@@ -187,6 +191,8 @@ def run_single_halo(M_halo_z0, z_start, z_end, params=None, rtol=1e-6, atol=1e-6
     M_sun = params["M_sun"]
     k_B = params["k_B"]
     mu = params["mu"]
+    enable_CR = params.get("enable_cosmic_rays", False)
+    enable_turb = params.get("enable_turbulence", False) or enable_CR
 
     # Convert to CGS
     M_halo_z0_cgs = M_halo_z0 * M_sun
@@ -211,6 +217,14 @@ def run_single_halo(M_halo_z0, z_start, z_end, params=None, rtol=1e-6, atol=1e-6
     # Initialize model
     model = GasRegulatorModel(params=params, M_halo_z0=M_halo_z0_cgs)
     y0 = model.initial_conditions(M_halo_init_cgs, z_start)
+
+    if enable_CR:
+        mode = "Full (turbulence + cosmic rays)"
+    elif enable_turb:
+        mode = "Pandya (turbulence)"
+    else:
+        mode = "Carr (thermal only)"
+    print(f"Model: {mode}, state dimension: {model.n_state}")
 
     # Create wrapper that includes redshift
     def dydt_wrapper(t, y):
@@ -244,26 +258,52 @@ def run_single_halo(M_halo_z0, z_start, z_end, params=None, rtol=1e-6, atol=1e-6
     z_array = np.array([time_to_redshift(t, cosmo, z_range=(z_end, z_start))
                         for t in t_array])
 
-    # Unpack state
+    # Unpack state (handles both 6 and 7 component)
     M_halo_arr = y_array[0, :] / M_sun
     M_CGM_arr = y_array[1, :] / M_sun
     M_ISM_arr = y_array[2, :] / M_sun
     M_star_arr = y_array[3, :] / M_sun
-    E_CGM_arr = y_array[4, :]
-    M_Z_CGM_arr = y_array[5, :] / M_sun
+
+    from . import physics as _phys
+
+    if enable_CR:
+        E_th_arr = y_array[4, :]
+        E_kin_arr = y_array[5, :]
+        E_CR_arr = y_array[6, :]
+        E_CGM_arr = E_th_arr + E_kin_arr + E_CR_arr
+        M_Z_CGM_arr = y_array[7, :] / M_sun
+        e_th_arr = E_th_arr / (M_CGM_arr * M_sun + 1e-30)
+        T_CGM_arr = (mu / k_B) * e_th_arr
+        v_turb_arr = np.array([
+            _phys.turbulent_velocity(ek, mc * M_sun)
+            for ek, mc in zip(E_kin_arr, M_CGM_arr)
+        ])
+    elif enable_turb:
+        E_th_arr = y_array[4, :]
+        E_kin_arr = y_array[5, :]
+        E_CGM_arr = E_th_arr + E_kin_arr
+        M_Z_CGM_arr = y_array[6, :] / M_sun
+        e_th_arr = E_th_arr / (M_CGM_arr * M_sun + 1e-30)
+        T_CGM_arr = (mu / k_B) * e_th_arr
+        v_turb_arr = np.array([
+            _phys.turbulent_velocity(ek, mc * M_sun)
+            for ek, mc in zip(E_kin_arr, M_CGM_arr)
+        ])
+    else:
+        E_CGM_arr = y_array[4, :]
+        M_Z_CGM_arr = y_array[5, :] / M_sun
+        e_CGM_arr = E_CGM_arr / (M_CGM_arr * M_sun + 1e-30)
+        T_CGM_arr = (mu / k_B) * e_CGM_arr
 
     # Compute derived quantities
     Z_CGM_arr = (M_Z_CGM_arr * M_sun) / (M_CGM_arr * M_sun + 1e-30)  # Absolute
     Z_CGM_solar = Z_CGM_arr / 0.0134  # In solar units
 
-    e_CGM_arr = E_CGM_arr / (M_CGM_arr * M_sun + 1e-30)
-    T_CGM_arr = (mu / k_B) * e_CGM_arr
-
     # Convert time to Gyr
     Gyr = params["Gyr"]
     t_Gyr = t_array / Gyr
 
-    return {
+    result = {
         "time": t_Gyr,
         "redshift": z_array,
         "M_halo": M_halo_arr,
@@ -277,6 +317,16 @@ def run_single_halo(M_halo_z0, z_start, z_end, params=None, rtol=1e-6, atol=1e-6
         "params": params,
         "sol": sol,  # Keep full solution for potential interpolation
     }
+
+    if enable_turb:
+        result["E_th"] = E_th_arr
+        result["E_kin"] = E_kin_arr
+        result["v_turb"] = v_turb_arr
+
+    if enable_CR:
+        result["E_CR"] = E_CR_arr
+
+    return result
 
 
 def run_halo_suite(M_halo_z0_range, z_start, z_end, params=None, rtol=1e-6, atol=1e-6):

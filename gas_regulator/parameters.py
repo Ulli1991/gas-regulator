@@ -71,6 +71,19 @@ default_params = {
     # Virial overdensity
     "Delta_vir": 200.0,
 
+    # Turbulence parameters (Pandya et al.)
+    "enable_turbulence": False,  # Off by default (Carr model); set True for energy tracking
+    "f_thermal_accretion": 0.5,  # Fraction of accretion energy that is thermal
+    "f_thermal_wind": 0.5,  # Fraction of wind energy that is thermal (of non-CR share)
+    "R_turb_fraction": 0.5,  # R_turb / R_vir (size of largest eddies)
+    "c_NFW": 10.0,  # NFW concentration parameter
+    "use_pandya_timescales": False,  # If True: NFW t_ff_eff, E_diss in t_cool; if False: Carr timescales
+
+    # Cosmic ray parameters
+    "enable_cosmic_rays": False,  # Off by default
+    "eta_CR": 0.1,  # CR energy loading (independent of eta_E)
+    "kappa_CR": 3e28,  # CR diffusion coefficient [cm^2/s]
+
     # Physical constants (for convenience)
     "G": GRAVITATIONAL_CONSTANT,
     "k_B": BOLTZMANN_CONSTANT,

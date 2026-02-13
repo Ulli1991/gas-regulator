@@ -237,6 +237,7 @@ def cooling_rate(rho_0, r_vir, r0_fraction, alpha, T_CGM, Z_CGM, z, params=None)
         params = default_params
 
     mu = params["mu"]
+    mu_H = params["mu_H"]
     r_0 = r0_fraction * r_vir
     x = r_vir / r_0
 
@@ -247,9 +248,11 @@ def cooling_rate(rho_0, r_vir, r0_fraction, alpha, T_CGM, Z_CGM, z, params=None)
         # Use Wiersma cooling tables
         wiersma = get_wiersma_cooling()
         # Compute characteristic hydrogen density at r ~ 0.3 * r_vir
+        # Wiersma tables are normalized per n_H^2, so convert rho -> n_H
+        # using mu_H = (1/0.75) * m_p (mean mass per hydrogen atom)
         r_char = 0.3 * r_vir
         rho_char = rho_0 * (r_char / r_0)**(-alpha)
-        nH_char = rho_char / mu  # Convert to number density
+        nH_char = rho_char / mu_H
         Lambda = wiersma.cooling_rate(T_CGM, nH_char, Z_CGM, z)
     else:
         # Use simplified cooling function
@@ -261,7 +264,10 @@ def cooling_rate(rho_0, r_vir, r0_fraction, alpha, T_CGM, Z_CGM, z, params=None)
     else:
         integral_factor = (x**(3 - 2*alpha) - 1) / (3 - 2*alpha)
 
-    dE_cool = 4 * np.pi * rho_0**2 * r_0**3 * (Lambda / mu**2) * integral_factor
+    # Wiersma Lambda is per n_H^2, so the prefactor must use n_H = rho/mu_H
+    # dE_cool = integral of n_H^2 * Lambda * 4*pi*r^2 dr
+    #         = 4*pi * rho_0^2/mu_H^2 * r_0^3 * Lambda * integral_factor
+    dE_cool = 4 * np.pi * rho_0**2 * r_0**3 * (Lambda / mu_H**2) * integral_factor
 
     return np.maximum(dE_cool, 0)
 

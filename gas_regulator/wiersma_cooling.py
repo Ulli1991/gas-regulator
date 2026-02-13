@@ -74,10 +74,8 @@ class WiersmaCooling:
                 Lambda_mf_full = f['/Metal_free/Net_Cooling'][:]
                 He_frac_bins = f['/Metal_free/Helium_mass_fraction_bins'][:]
 
-                # Interpolate to our assumed He fraction (0.25)
-                # For now, just use the closest bin
-                i_He = np.argmin(np.abs(He_frac_bins - self.He_mass_frac))
-                self.Lambda_H_He[i] = Lambda_mf_full[i_He, :, :]
+                # Use i_X_He = -3 (index 4, He=0.4) to match Fielding & Bryan (2022)
+                self.Lambda_H_He[i] = Lambda_mf_full[-3, :, :]
 
         # Convert to log space for interpolation (more accurate)
         self.log_T_bins = np.log10(self.T_bins)

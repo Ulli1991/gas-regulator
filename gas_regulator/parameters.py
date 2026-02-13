@@ -16,6 +16,7 @@ GIGAYEAR = 1e9 * YEAR  # s
 
 # Mean molecular weight
 MU = 0.6 * PROTON_MASS  # g (for ionized gas)
+MU_H = (1.0 / 0.75) * PROTON_MASS  # g (mean mass per hydrogen atom, for n_H conversion)
 
 # Cosmological parameters (Planck 2018-like)
 H0 = 70.0  # km/s/Mpc (h = 0.7)
@@ -75,6 +76,7 @@ default_params = {
     "k_B": BOLTZMANN_CONSTANT,
     "m_p": PROTON_MASS,
     "mu": MU,
+    "mu_H": MU_H,
     "M_sun": SOLAR_MASS,
     "kpc": KILOPARSEC,
     "Gyr": GIGAYEAR,

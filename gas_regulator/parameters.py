@@ -57,7 +57,8 @@ default_params = {
 
     # Metal loading
     "eta_Z": 0.5,  # Metal loading factor
-    "y_SN": 0.02,  # Metal yield per stellar mass formed
+    "y_SN": 0.033,  # Gross metal yield per stellar mass formed (Carr eq 20; Kroupa IMF,
+                    # (1-f_rec)*y_SN ~ 0.02). Was 0.02 (net) — bug fixed 2026-06-15.
 
     # Preventive feedback
     "alpha_prevent": 2.0,  # Preventive factor coefficient

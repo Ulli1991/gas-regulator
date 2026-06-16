@@ -30,3 +30,4 @@ build/
 
 /u/uli/gas-regulator/data/cooling_tables/CoolingTables/*
 data/cooling_tables/coolingtables_highres.tar.gz
+core.raven01.*

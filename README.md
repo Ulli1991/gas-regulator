@@ -1,200 +1,125 @@
-# Gas-Regulator Model
+# gas-regulator
 
-Implementation of the gas-regulator model from **Carr et al. 2023** for star formation regulation via a hot circumgalactic medium (CGM).
+A clean implementation of the **Carr et al. 2023** gas-regulator model for the
+regulation of star formation by a hot circumgalactic medium (CGM), together with
+the **Pandya et al. 2023** turbulence extension and a cosmic-ray transport extension.
 
-## Overview
+The model is a 1D system of coupled ODEs tracking the exchange of mass, energy and
+metals between reservoirs:
 
-This package implements a 1D ODE-based model that tracks mass and energy exchanges between 6 reservoirs:
+| reservoir | symbol |
+|---|---|
+| dark-matter halo | `M_halo` |
+| circumgalactic medium | `M_CGM` |
+| interstellar medium | `M_ISM` |
+| stars | `M_star` |
+| CGM energy (thermal; + kinetic with turbulence) | `E_CGM` / `E_th`, `E_kin` |
+| CGM metal mass | `M_Z_CGM` |
+| ISM metal mass | `M_Z_ISM` |
 
-1. Dark matter halo mass (M_halo)
-2. Stellar mass (M_star)
-3. ISM mass (M_ISM)
-4. CGM mass (M_CGM)
-5. CGM energy (E_CGM)
-6. CGM metal mass (M_Z,CGM)
+Key physics: cosmological halo accretion, metallicity-dependent radiative cooling
+(Wiersma et al. 2009 tables), star formation with a depletion-time law, SN winds
+with mass/energy/metal loading (`eta_M`, `eta_E`, `eta_Z`), preventive feedback from
+an over-pressurised CGM, and metal enrichment of both the ISM and CGM.
 
-The model captures the key physics of galaxy evolution:
-- Cosmological halo accretion
-- CGM cooling and accretion onto the ISM
-- Star formation with depletion time scaling
-- Stellar winds with mass, energy, and metal loading
-- Preventive feedback from hot CGM outflows
-- Metal enrichment of the CGM
-
-## Installation
+## Install
 
 ```bash
-cd gas-regulator
 pip install -e .
 ```
 
-Or install dependencies directly:
+The forward model is implemented in **JAX/diffrax** (fully differentiable). Requires
+`jax`, `diffrax`, `numpy`, `h5py`, `matplotlib`, `scipy` (the fig6 bisection), and
+`astropy` (optional, validation only). You also need the Wiersma+09 cooling tables
+under `data/cooling_tables/CoolingTables/z_*.hdf5`.
+
+On busy shared nodes the module caps its CPU affinity to 8 cores (override with
+`JAX_REGULATOR_MAX_CORES`) so XLA's thread pool stays within the per-cgroup limit.
+
+## Reproduce the key figures
+
+A single entry point generates the key figures of Carr et al. 2023:
+
 ```bash
-pip install -r requirements.txt
+python make_figures.py <figure> [options]
 ```
 
-## Quick Start
+| figure | content |
+|---|---|
+| `fig2` | single-halo time evolution (masses, energy, metallicity) |
+| `fig3` | stellar-to-halo mass relation, sensitivity to `eta_M` / `eta_E` / `eta_Z` |
+| `fig5` | CGM mass fraction and metallicity vs halo mass |
+| `fig6` | recover `eta_E(M_halo)` matching the Behroozi 2019 z=0 SHMR |
+| `all`  | generate every figure |
+
+### Model variants (`--model`)
+
+| value | model |
+|---|---|
+| `carr` | Carr+23 thermal-only CGM (default) |
+| `pandya` | Pandya+23 turbulence extension — tracks `E_th` + `E_kin` (Carr timescales) |
+| `pandya-ts` | Pandya turbulence with Pandya's NFW free-fall / dissipation timescales |
+| `turbcr` | turbulence + cosmic-ray transport |
+
+### Examples
+
+```bash
+python make_figures.py fig3 --model carr
+python make_figures.py fig2 --model pandya --eta-E 0.3
+python make_figures.py fig6 --out myplots/
+python make_figures.py all  --model pandya
+python make_figures.py --help        # all options
+```
+
+Common options: `--eta-M --eta-E --eta-Z` (loading factors), `--halo-mass`
+(single-halo figures), `--halo-lo --halo-hi --halo-n` (scaling-relation grid),
+`--z-start`, `--cooling {wiersma,simple}`, `--out`. Figures are written to
+`figures_out/` by default.
+
+## Use the model directly
 
 ```python
 from gas_regulator import run_single_halo, default_params
-from gas_regulator.utils import plot_evolution, print_summary
-
-# Run a Milky Way-mass halo from z=4 to z=0
-# Note: z=3-4 start recommended for numerical stability
-result = run_single_halo(
-    M_halo_z0=1e12,  # Solar masses at z=0 (target)
-    z_start=4.0,
-    z_end=0.0,
-    params=default_params
-)
-
-# Print summary
-print_summary(result)
-
-# Plot evolution
-plot_evolution(result, save_path='evolution.png')
+p = default_params.copy()
+p.update(eta_M_norm=0.1, eta_E_A=0.1, eta_Z=0.5, use_wiersma_cooling=True)
+r = run_single_halo(M_halo_z0=1e12, z_start=6.0, z_end=0.0, params=p)
+print(r["M_star"][-1], r["Z_CGM"][-1])     # z=0 stellar mass, CGM metallicity
 ```
 
-## Running a Halo Suite
-
-```python
-from gas_regulator import run_halo_suite
-from gas_regulator.utils import plot_scaling_relations
-import numpy as np
-
-# Run suite of halos with different masses
-M_halo_range = np.logspace(10, 12, 20)  # 10^10 to 10^12 Msun
-results = run_halo_suite(
-    M_halo_z0_range=M_halo_range,
-    z_start=6.0,
-    z_end=0.0,
-    params=default_params
-)
-
-# Plot scaling relations
-plot_scaling_relations(results, save_path='scaling_relations.png')
-```
-
-## Model Physics
-
-### Halo Accretion
-```
-dM_halo/dt = 0.47 * M_halo * (M_halo/10^12 Msun)^0.15 * ((1+z)/3)^2.25 [Gyr^-1]
-```
-
-### CGM Structure
-Power-law density profile: `rho(r) = rho_0 * (r/r_0)^(-1.4)` with `r_0 = 0.1 * r_vir`
-
-### Star Formation
-Depletion time scaling: `t_dep ~ M_star^(-0.37) * (1+z)^(-3/2)`
-
-### Feedback
-- Mass loading: `eta_M ~ M_halo^(-0.5)`
-- Energy loading: `eta_E ~ M_halo^(-0.65)`
-- Preventive feedback suppresses inflow when CGM is hot
-
-### Cooling
-Simplified cooling function approximating Wiersma et al. tables with temperature and metallicity dependence.
-
-## Package Structure
+## Repository layout
 
 ```
-gas-regulator/
-├── gas_regulator/
-│   ├── __init__.py        # Package interface
-│   ├── model.py           # ODE system class
-│   ├── physics.py         # Physical calculations
-│   ├── parameters.py      # Constants and default parameters
-│   ├── solver.py          # Solver interface
-│   └── utils.py           # Plotting and analysis utilities
-├── setup.py               # Package installation
-├── requirements.txt       # Dependencies
-└── README.md             # This file
+make_figures.py          single CLI entry point
+figures/                 per-figure orchestrators (fig2/3/5/6) + shared helpers
+gas_regulator/           the model library
+  jax_regulator.py         the differentiable JAX/diffrax model (Carr / Pandya / +CR)
+  parameters.py            constants and default parameters (CGS)
+  behroozi19.py            Behroozi+19 stellar-mass--halo-mass relation
+data/cooling_tables/     Wiersma+09 cooling tables (not distributed)
 ```
 
-## Parameters
+## The model (`gas_regulator/jax_regulator.py`)
 
-Default parameters are defined in `gas_regulator.parameters.default_params`. Key parameters include:
+The forward model is a single JAX/diffrax implementation covering all three variants
+(Carr thermal, Pandya turbulence, +CR). It integrates the stiff ODE system with a
+Kvaerno solver and is **fully differentiable**: `jax.grad` gives exact gradients of
+the z=0 observables with respect to the loading factors, enabling gradient-based
+recovery of `eta_E(M_halo, z)` against observed scaling relations. `run_single_halo`
+returns the same result dict the figures consume.
 
-- `alpha = 1.4`: CGM density profile slope
-- `f_rec = 0.4`: Stellar recycling fraction
-- `eta_M_beta = 0.5`: Mass loading mass-dependence
-- `eta_E_lambda = 0.65`: Energy loading mass-dependence
-- `alpha_prevent = 2.0`: Preventive feedback strength
+## Example figures
 
-To modify parameters:
-```python
-from gas_regulator import default_params
+Generated with `python make_figures.py all --model carr`:
 
-custom_params = default_params.copy()
-custom_params['alpha_prevent'] = 3.0  # Stronger preventive feedback
+| | |
+|---|---|
+| ![fig2](figures_out/fig2_evolution_carr.png) | ![fig3](figures_out/fig3_shmr_carr.png) |
+| **Fig. 2** single-halo evolution | **Fig. 3** SHMR sensitivity to η_M/η_E/η_Z |
+| ![fig5](figures_out/fig5_cgm_carr.png) | ![fig6](figures_out/fig6_etaE_carr.png) |
+| **Fig. 5** CGM mass & metallicity | **Fig. 6** recovered η_E(M_halo) vs Behroozi |
 
-result = run_single_halo(1e12, 6.0, 0.0, params=custom_params)
-```
+## References
 
-## Expected Results
-
-For a Milky Way-mass halo (10^12 Msun at z=0):
-- Final stellar mass: ~10^10 Msun
-- Final ISM mass: ~10^10 Msun
-- Final CGM mass: ~10^10 Msun
-- CGM metallicity: ~0.07 Z_sun
-- Stellar-to-halo mass fraction: ~0.01
-
-## Accessing Results
-
-Results are returned as dictionaries with the following keys:
-
-- `time`: Time array in Gyr
-- `redshift`: Redshift array
-- `M_halo`: Halo mass in Msun
-- `M_CGM`: CGM mass in Msun
-- `M_ISM`: ISM mass in Msun
-- `M_star`: Stellar mass in Msun
-- `E_CGM`: CGM energy in erg
-- `M_Z_CGM`: CGM metal mass in Msun
-- `Z_CGM`: CGM metallicity in Z/Z_sun
-- `T_CGM`: CGM temperature in K
-
-## Reference
-
-Carr et al. 2023, "Star formation regulation via the hot circumgalactic medium: the gas-regulator model"
-
-## Numerical Considerations
-
-### Starting Redshift
-**Recommended**: Start from z=3-4 for best numerical stability
-
-**Why**: At very high redshift (z>4), the combination of:
-- Very small initial stellar masses
-- Depletion time scaling t_dep ~ M_star^(-0.37)
-- Simplified cooling function
-
-can create numerically stiff equations. The implementation uses:
-- BDF (Backward Differentiation Formula) solver for stiff ODEs
-- Minimum depletion time floor at 10 Myr
-- Initial mass seeds scaled to halo mass
-
-For z>4 start, full Wiersma cooling tables and better-calibrated initial conditions would be ideal.
-
-### Solver Performance
-- z=1.5 to z=0: ~1 second
-- z=3 to z=0: ~30 seconds
-- z=4 to z=0: ~1-2 minutes
-- z=6 to z=0: Can be slow/unstable with simplified cooling
-
-### Halo Mass Evolution
-The `M_halo_z0` parameter is a *target* mass, but the actual final mass may differ slightly because:
-- The Dekel accretion formula has intrinsic scatter
-- Backward extrapolation + forward integration aren't perfectly self-consistent
-- This is expected for such analytical approximations
-
-## Notes
-
-This implementation uses:
-- Simplified cooling function (not full Wiersma tables)
-- Flat Lambda-CDM cosmology with Planck-like parameters
-- BDF adaptive ODE solver from scipy (for stiff equations)
-- Astropy for cosmological time calculations
-
-For quantitative comparison with Carr et al., the full Wiersma cooling tables would be needed, but this implementation reproduces the qualitative behavior and scaling relations.
+- Carr, Bryan, Fielding, Pandya & Somerville 2023, ApJ 949, 21 (arXiv:2211.05115)
+- Pandya et al. 2023, ApJ 956, 118 (arXiv:2211.09755)
+- Behroozi et al. 2019, MNRAS 488, 3143 (UniverseMachine)
